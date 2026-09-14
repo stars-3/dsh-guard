@@ -1,0 +1,30 @@
+# ============================================================================
+#  .gitattributes —— 保护这些脚本的**行尾与编码**
+#
+#  为什么必须显式声明（都是踩过的）：
+#   · `.cmd` / `.vbs` 一旦被转换行尾，批处理的 goto/label 定位会出问题，
+#     Windows Script Host 也可能报错 → 这类文件绝不能让 git 碰行尾。
+#   · `.ps1` 必须是 **CRLF + UTF-8 BOM**：PowerShell 5.1 会按 ANSI(GBK) 读无 BOM 的文件，
+#     中文注释会撑破引号 → 报一堆假语法错（本项目为此专门有 tools\Fix-Bom.ps1）。
+#   · 图标是二进制，别让 git 尝试合并/转换。
+#
+#  规则：**后面的行覆盖前面的行**，所以 `* text=auto` 放最前面。
+# ============================================================================
+
+* text=auto
+
+# 脚本：保持原样，一个字节都别动
+*.ps1   -text
+*.psm1  -text
+*.cmd   -text
+*.bat   -text
+*.vbs   -text
+
+# 二进制
+*.ico   binary
+*.png   binary
+*.gif   binary
+*.jpg   binary
+
+# 给 GitHub 的统计用：这些是"文档/配置"，不算自动生成
+*.md    linguist-documentation

@@ -1,0 +1,4 @@
+# dsh bundle patch —— 把本插件插进 profile 的层栈（与 dsh-plugin / group-tools 同一写法）
+- insert:
+    - id: dsh-guard
+      name: 'dsh-guard'

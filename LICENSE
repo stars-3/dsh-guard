@@ -1,0 +1,58 @@
+﻿MIT License
+
+Copyright (c) 2026 stars-3
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+第三方组件与商标说明（Third-Party Notices）
+================================================================================
+
+DeepSeek Harness (DSH)
+---------------------
+本项目是 DeepSeek Harness 的第三方插件，不修改其源码、不替换其官方包，
+也不占用其官方命名空间（插件包名为 dsh-guard，不在 @deepseek-ai/ 下）。
+运行时依赖 DSH 及其相关包（@deepseek-ai/*），这些包以 MIT 许可发布：
+
+    MIT License
+    Copyright (c) 2026 DeepSeek
+
+其完整许可文本随对应的 npm 包一同分发（见各包目录下的 LICENSE 文件）。
+
+图标
+----
+ui/guard.ico 与 ui/guard-icon.png 是本项目**自绘的原创图标**：纯几何形状（圆角方块 +
+盾牌 + 回退箭头），由脚本生成、不含任何第三方素材，**随本项目一起按上面的 MIT 许可发布**。
+它不是 DeepSeek 官方标志，本项目也不声称与官方有任何关联。
+
+图标里包含 PNG 压缩帧 —— 用 .NET 的 System.Drawing.Icon 直接转位图会解成噪点，
+Guard-UI.ps1 里的 Get-GuardIcon 是自己抠 PNG 帧再 GetHicon() 的，改图标时别绕开它。
+
+Windows 计划任务（schtasks / Register-ScheduledTask）
+----------------------------------------------------
+可选安装的"看门狗"以当前用户身份运行一个 PowerShell 脚本，不需要管理员权限即可运行，
+仅在注册任务那一步需要一次提权。
+
+商标
+----
+"DeepSeek"、"DeepSeek Harness" 是杭州深度求索人工智能基础技术研究有限公司的商标。
+本项目的 MIT 许可**不授予任何商标使用权**。本项目中出现的相关名称仅用于
+描述性说明（说明本软件与 DSH 的兼容关系），不代表官方、亦不暗示任何官方背书。
+
+================================================================================

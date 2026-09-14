@@ -1,0 +1,64 @@
+{
+  "name": "dsh-guard",
+  "version": "0.1.0",
+  "description": "DSH Guard —— DeepSeek Harness 的 profile 快照 / 崩溃自动回滚 / 一键主动回滚（Windows）",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "author": "stars-3",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stars-3/dsh-guard.git"
+  },
+  "homepage": "https://github.com/stars-3/dsh-guard#readme",
+  "bugs": {
+    "url": "https://github.com/stars-3/dsh-guard/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "rollback",
+    "guard",
+    "snapshot"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "win32"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "ui",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  }
+}

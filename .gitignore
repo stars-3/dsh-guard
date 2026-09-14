@@ -1,0 +1,24 @@
+# 开发/测试产物 —— 不要提交，也不要发布
+_shadow/
+_testhome/
+_backup*/
+*.log
+
+# 守护运行时数据（正常情况下在 %USERPROFILE%\.dsh-guard，这里防手滑）
+guardhome/
+snapshots/
+state/
+logs/
+
+# 临时结果
+r.json
+once*.json
+*-out.json
+_shadow*/
+_scratch/
+# 作者自己的发布工具 —— 不进公开仓库（文件留在本地，双击即可用）
+Push-ToGitHub.ps1
+Push-ToGitHub.cmd
+# 作者专用的抽取工具（源文件是另一个私有项目，公开仓库里跑不了）—— 留在本地备查
+tools/extract-core.ps1
+tools/extract-supervisor.ps1
