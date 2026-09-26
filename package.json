@@ -1,11 +1,11 @@
 {
-  "name": "dsh-guard",
-  "version": "0.1.0",
-  "description": "DSH Guard —— DeepSeek Harness 的 profile 快照 / 崩溃自动回滚 / 一键主动回滚（Windows）",
+  "name": "dsh-guard-desktop",
+  "version": "0.1.2",
+  "description": "DSH Guard —— DeepSeek Harness 官方桌面端的 profile 快照 / 崩溃自动回滚 / 一键主动回滚（Windows）",
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
-  "author": "stars-3",
+  "author": "star8545",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/stars-3/dsh-guard.git"

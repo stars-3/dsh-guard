@@ -18,10 +18,45 @@ param(
     [string]$GuardHome   = '',
     # ⚠️ 默认 0 = "调用方没指定"。**不要**在这里写死 3080：写死会让默认值冒充"显式指定"，
     #    把下面 §4 的环境变量回退整个盖掉（2026-09-14 真启动实测过这个坑）。
-    [int]   $WebPort     = 0
+    [int]   $WebPort     = 0,
+    # ---- 官方桌面端支持（2026-09-26 新增；**默认值 = 上游行为，不影响 web 那份**）----
+    # 'port'    = 老行为：探 DSH 的 Web 端口在不在听
+    # 'process' = 官方桌面端：探 `DeepSeek Harness.exe` 进程还在不在
+    #             （官方端端口是随机的 —— asar 里是 server.listen(0) —— 按端口盯必然盯错）
+    [string]$HealthMode  = '',
+    [string]$AppExe      = '',      # 官方端可执行文件（process 模式下用它重启）
+    [string]$AppProcess  = '',      # 进程名（不含 .exe）
+    [string]$PnpmCmd     = ''       # 回滚时用的 pnpm 命令（官方端要带自带运行时）
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---- 0. 修 PSModulePath（2026-09-26 新增；官方桌面端迁移时发现）----
+#
+# 现象：**从 PowerShell 7 的会话里 spawn 出来的 5.1 子进程**会继承 PS7 的 PSModulePath
+#       （`C:\Program Files\PowerShell\7\Modules`、`…\Documents\PowerShell\Modules` 排在前面），
+#       于是 5.1 解析 `Microsoft.PowerShell.Utility` 时**优先命中 PS7 版模块**、加载失败，
+#       `Get-FileHash` / `Get-NetTCPConnection` 这类**靠自动加载**的 cmdlet 直接变成
+#       "无法将…项识别为 cmdlet" —— 症状与"命令不存在"一模一样，极难归因。
+# 复现（实测）：从 node 里 spawn('powershell.exe', ['-File', 任意.ps1]) 时必现
+#       （探针证据：GetFileHash=NOT FOUND，且 PSModulePath 首项是 PS7 目录）；
+#       同一脚本从 5.1 会话直接调用则正常。
+# 处置：5.1 下把 PS7 的模块目录从 PSModulePath 里**剔掉**（保留顺序，只删不换）。
+#       放在最前面 —— 本文件之后（以及所有 dot-source 它的脚本）都要用这类 cmdlet。
+if ($PSVersionTable.PSVersion.Major -le 5 -and $env:PSModulePath) {
+    # ⚠️ 变量名别叫 $keep/$Keep！2026-09-26 实测踩到：guard.ps1 有个 `[int]$Keep` 参数，
+    #    PowerShell 变量名**不区分大小写**，而 dot-source 时两者同在调用方作用域 ⇒
+    #    把数组赋给 [int] 约束的参数 → "Cannot convert System.Object[] to type System.Int32"，
+    #    整个初始化失败（症状与"命令不存在"一样难归因）。同类：账本 E15（$Host）。
+    #    护栏：tools\test-var-collision.ps1（静态查"普通局部变量 vs 入口脚本参数名"撞车）。
+    $psmpKeepPaths = @($env:PSModulePath -split ';' | Where-Object {
+        if (-not $_) { return $false }
+        if ($_ -match 'WindowsPowerShell') { return $true }   # 5.1 自己的模块目录，保留
+        if ($_ -match 'PowerShell') { return $false }         # PS7 的模块目录，剔掉
+        return $true                                          # 其它（如 SQL Server 的），保留
+    })
+    $env:PSModulePath = ($psmpKeepPaths -join ';')
+}
 
 # ---- 1. 根目录 ----
 $script:GuardHome = if ($GuardHome) { $GuardHome }
@@ -87,6 +122,79 @@ if ($portArg -gt 0)                   { $script:WebPort = $portArg;         $scr
 # 显式指定端口时 URL 自己拼 —— 不能再用环境里那个"可能属于别的实例"的 URL
 $script:WebUrl = if ($script:WebPortFrom -eq 'env' -and $env:DSH_WEB_URL) { $env:DSH_WEB_URL }
                  else { "http://127.0.0.1:$($script:WebPort)" }
+
+# ---- 4.5 运行模式：官方桌面端（2026-09-26 新增）----
+#
+# 为什么需要它：官方桌面端（D:\dsh\DeepSeek Harness.exe）与自制外壳的差别有二 ——
+#   ① 它的界面端口**每次启动都随机**（asar 里是 `server.listen(0, "127.0.0.1")`，
+#      实测过 19387）⇒ 按端口盯"在不在听"必然盯错；
+#   ② 它没有 `dsh web --port` 这条 CLI ⇒ 原来看门狗的自动拉起方式用不了。
+# 所以官方端用 `HealthMode='process'`：**"活着"的定义 = `DeepSeek Harness.exe` 进程在**，
+# 下游的宽限期/阈值/隔离观察/回滚逻辑一行都不用改（它们只读 $Health.PortUp）。
+#
+# 优先级：**显式传参 > DSHGUARD_* 环境变量 > <GuardHome>\config.json > 内建默认**
+# （config.json 由插件的 lib/index.js 写入，这样计划任务、独立面板、命令行三条路径
+#   不必各自带一遍参数也能拿到同一套设置。）
+# 注意文件名**按 profile 分开**：GuardHome（~/.dsh-guard）是整机共用的，
+# 若共用一份 config.json，desktop 写了 process 模式之后 web 那份也会跟着变 —— 那会
+# 让"你自己手动跑的 web 看门狗"去盯官方端进程。（显式传参 > 环境变量 > 本文件 > 默认）
+$script:GuardConfigFile = Join-Path $script:GuardHome ("config-$ProfileName.json")
+$script:GuardConfig = $null
+if (Test-Path -LiteralPath $script:GuardConfigFile) {
+    try { $script:GuardConfig = Get-Content -LiteralPath $script:GuardConfigFile -Raw | ConvertFrom-Json } catch { $script:GuardConfig = $null }
+}
+function Get-GuardCfgValue {
+    param([string]$Key)
+    if ($script:GuardConfig -and ($script:GuardConfig.PSObject.Properties.Name -contains $Key)) {
+        return [string]$script:GuardConfig.$Key
+    }
+    return ''
+}
+
+$script:HealthMode = if ($HealthMode) { $HealthMode }
+                     elseif ($env:DSHGUARD_HEALTH_MODE) { $env:DSHGUARD_HEALTH_MODE }
+                     else { Get-GuardCfgValue 'healthMode' }
+if (-not $script:HealthMode) { $script:HealthMode = 'port' }
+
+$script:AppExe = if ($AppExe) { $AppExe }
+                 elseif ($env:DSHGUARD_APP_EXE) { $env:DSHGUARD_APP_EXE }
+                 else { Get-GuardCfgValue 'appExe' }
+if (-not $script:AppExe) { $script:AppExe = 'D:\dsh\DeepSeek Harness.exe' }
+
+$script:AppProcess = if ($AppProcess) { $AppProcess }
+                     elseif ($env:DSHGUARD_APP_PROCESS) { $env:DSHGUARD_APP_PROCESS }
+                     else { Get-GuardCfgValue 'appProcess' }
+if (-not $script:AppProcess) { $script:AppProcess = 'DeepSeek Harness' }
+
+# 回滚最后要跑一次 `pnpm install`：官方端进程的 PATH 里没有 pnpm，必须用官方端自带的运行时。
+$script:PnpmCmd = if ($PnpmCmd) { $PnpmCmd }
+                  elseif ($env:DSHGUARD_PNPM) { $env:DSHGUARD_PNPM }
+                  else { Get-GuardCfgValue 'pnpmCmd' }
+if (-not $script:PnpmCmd) {
+    $rtNode = 'D:\dsh\resources\runtime\primary-runtime\dependencies\node\bin\node.exe'
+    $rtPnpm = 'D:\dsh\resources\runtime\primary-runtime\dependencies\pnpm\bin\pnpm.cjs'
+    if ($script:HealthMode -eq 'process' -and (Test-Path -LiteralPath $rtNode) -and (Test-Path -LiteralPath $rtPnpm)) {
+        $script:PnpmCmd = '"{0}" "{1}"' -f $rtNode, $rtPnpm
+    }
+    else { $script:PnpmCmd = 'pnpm' }
+}
+
+# 日志文案用的"判定对象称呼"（2026-09-26）：进程模式与端口模式各一套说法，
+# 免得官方端模式下日志还在说"Web 未在运行 / 端口 X 正常"，读日志的人会以为判据没换。
+$script:SubjectLabel = if ($script:HealthMode -eq 'process') { "官方端进程 $script:AppProcess" } else { "Web 端口 $script:WebPort" }
+$script:SubjectIdle  = if ($script:HealthMode -eq 'process') { '官方端进程不在' } else { 'Web 未在运行' }
+
+# 进程模式的判活辅助（port 模式下不使用，但定义着无害）
+function Test-AppRunning {
+    param([string]$Name = $script:AppProcess)
+    return [bool](Get-Process -Name $Name -ErrorAction SilentlyContinue)
+}
+function Get-AppPid {
+    param([string]$Name = $script:AppProcess)
+    $p = @(Get-Process -Name $Name -ErrorAction SilentlyContinue | Sort-Object StartTime)
+    if ($p.Count -gt 0) { return [int]$p[0].Id }
+    return 0
+}
 
 # ---- 5. 端口占用查询缓存（Get-PortOwnerPid 用）----
 $script:PortOwnerCache = @{}

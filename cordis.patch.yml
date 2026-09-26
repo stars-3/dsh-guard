@@ -1,4 +1,6 @@
 # dsh bundle patch —— 把本插件插进 profile 的层栈（与 dsh-plugin / group-tools 同一写法）
+# ⚠️ `id` 保持 dsh-guard（profile 的 cordis.patch.yml 按这个 id 覆盖 config），
+#    `name` 是模块说明符，必须等于包名 dsh-guard-desktop —— 见账本 E80。
 - insert:
     - id: dsh-guard
-      name: 'dsh-guard'
+      name: 'dsh-guard-desktop'

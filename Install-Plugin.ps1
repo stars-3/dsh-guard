@@ -4,7 +4,7 @@
   机制与 DSH-Desktop\Install-GroupToolsPlugin.ps1 完全一致（本机已验证过的本地装法）：
     ① 拷插件源码 → <ProfileDir>\node_modules\dsh-guard
     ② 把 "dsh-guard" 登记进 profile 的 dsh.profile.bundles
-    ③ 重启 DSH 后生效
+    ③ 官方端：**新增 bundle** 热加载；**改插件内部代码**要重启官方端；客户端面板刷新页面（Ctrl+R）
 
   为什么不用 `dsh plugin --profile web add`：那条会转给 pnpm，对**本地未发布**的包
   会触发一次全量重解析（要联网、要动 lockfile）；手动拷+登记不动 lockfile，
@@ -157,7 +157,7 @@ if ($Verify) {
     if ($bad.Count) { $bad | ForEach-Object { Say ('      ✗ 缺 BOM：' + $_.FullName) Red } }
 
     Say ''
-    if ($installed -and $registered) { Say '   => 已装好。若刚装完，需要重启 DSH 才加载。' Green }
+    if ($installed -and $registered) { Say '   => 已装好。（新增 bundle 热加载；客户端面板刷新页面 Ctrl+R）' Green }
     else { Say '   => 没装 / 不完整。跑一次不带参数的即可安装。' Yellow }
     exit 0
 }
@@ -181,7 +181,7 @@ if ($Revert) {
     else { Say '   bundles 里本来也没有' DarkGray }
 
     Say ''
-    Say '卸载完成，重启 DSH 生效。' Yellow
+    Say '卸载完成（新增/移除 bundle 热加载；客户端面板刷新页面 Ctrl+R）。' Yellow
     Say "（守护自己攒的快照没删：$env:USERPROFILE\.dsh-guard —— 要清就手动删那个目录）" DarkGray
     exit 0
 }
@@ -356,7 +356,7 @@ Say ''
 Say '装好了。' Green
 Say ''
 Say '下一步：' Cyan
-Say '  1) 重启 DSH（怎么启动的就怎么重启一次）才会加载插件'
+Say '  1) 官方端：新增 bundle 热加载（改插件代码则要重启）；npm/web 那份若没生效就重启一次 DSH'
 Say '  2) 打开 设置 → 插件 → 守护，就是面板（状态 / 快照 / 一键回滚）'
 Say '  3) 想要"DSH 挂了也能救你"：双击 Install-Watchdog-NoAdmin.cmd（不需要管理员）'
 Say '     或 Install-Watchdog.cmd（注册计划任务，弹一次 UAC）'

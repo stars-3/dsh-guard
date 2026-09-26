@@ -55,7 +55,10 @@ try {
     Initialize-DshGuardDirs
 }
 catch {
-    Write-Result ([ordered]@{ ok = $false; action = $Action; error = "初始化失败: $($_.Exception.Message)" })
+    # ⚠️ 2026-09-26：加上 stack —— 初始化失败原来只报一句 message，定位全靠猜
+    #    （当天真实踩到："初始化失败: Cannot convert System.Object[] to System.Int32"，
+    #     光看这句话完全不知道是 bootstrap/core/建目录 哪一步、哪一行）。
+    Write-Result ([ordered]@{ ok = $false; action = $Action; error = "初始化失败: $($_.Exception.Message)"; stack = "$($_.ScriptStackTrace)"; at = "$($_.InvocationInfo.PositionMessage)" })
     exit 1
 }
 

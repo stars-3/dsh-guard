@@ -26,6 +26,10 @@ param(
     # ⚠️ 默认 0 = "没指定"，交给 §4 的优先级回退（见 guard-bootstrap.ps1）。
     #    写死 3080 会让默认值冒充"显式指定"，把环境变量回退整个盖掉。
     [int]   $WebPort      = 0,
+    # ---- 官方桌面端支持（2026-09-26 新增；留空 = 上游行为）----
+    [string]$HealthMode   = '',
+    [string]$AppExe       = '',
+    [string]$AppProcess   = '',
     [string]$WorkDir      = '',
     [string]$TaskName     = 'DSH Guard 看门狗',
     # 用【启动文件夹】而不是计划任务：**不需要管理员权限**、不弹 UAC。
@@ -41,7 +45,7 @@ param(
 $ErrorActionPreference = 'Continue'
 $libDir = $PSScriptRoot                      # 插件包里的 lib\
 
-. (Join-Path $libDir 'guard-bootstrap.ps1') -ProfileName $Profile -GuardHome $GuardHomeDir -WebPort $WebPort
+. (Join-Path $libDir 'guard-bootstrap.ps1') -ProfileName $Profile -GuardHome $GuardHomeDir -WebPort $WebPort -HealthMode $HealthMode -AppExe $AppExe -AppProcess $AppProcess
 . (Join-Path $libDir 'guard-core.ps1')
 
 # 端口兜底：双击 .cmd / 从资源管理器启动时，环境里没有 DSH_WEB_URL，bootstrap 会退到默认 3080；
@@ -157,6 +161,12 @@ Say ''
 # 烘进自启项的端口必须是**解析后的**（$script:WebPort），不是原始参数：
 # 它是在登录时启动的，那时环境里没有 DSH_WEB_URL，只能靠这里烘死的值。
 $argLine = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$watchdog`" -Profile $Profile -GuardHomeDir `"$($script:GuardHome)`" -WebPort $($script:WebPort) -WorkDir `"$workDir2`""
+# 官方桌面端（2026-09-26）：把运行模式一并烘进自启项 —— 登录时环境里没有 DSH_WEB_URL/DSHGUARD_*，
+# 只能靠这里烘死的值。（PnpmCmd 故意不烘：它可能自带引号（`"node.exe" "pnpm.cjs"`），
+# 嵌进 argLine 会把引号搞乱；改由 <GuardHome>\config.json 提供。）
+if ($script:HealthMode -and $script:HealthMode -ne 'port') { $argLine += " -HealthMode $($script:HealthMode)" }
+if ($script:AppExe)     { $argLine += " -AppExe `"$($script:AppExe)`"" }
+if ($script:AppProcess) { $argLine += " -AppProcess `"$($script:AppProcess)`"" }
 $installedVia = ''
 
 if ($UseStartup) {
@@ -192,6 +202,10 @@ if ($UseStartup) {
                     '-Profile', $Profile, '-WebPort', "$($script:WebPort)", '-TaskName', "`"$TaskName`"", '-Elevated')
             if ($GuardHomeDir) { $re += @('-GuardHomeDir', "`"$GuardHomeDir`"") }
             if ($WorkDir) { $re += @('-WorkDir', "`"$WorkDir`"") }
+            # 官方桌面端模式要跟着提权进程一起传下去，否则提权后烘进自启项的是默认 port 模式
+            if ($HealthMode) { $re += @('-HealthMode', $HealthMode) }
+            if ($AppExe) { $re += @('-AppExe', "`"$AppExe`"") }
+            if ($AppProcess) { $re += @('-AppProcess', "`"$AppProcess`"") }
             try {
                 $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $re -Verb RunAs -PassThru
                 $p.WaitForExit()

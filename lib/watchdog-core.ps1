@@ -38,8 +38,21 @@ function Get-HealthSnapshot {
       .OUTPUTS @{ PortUp; HttpOk; HttpMsg; LauncherPid; LauncherAlive; NodePid;
                   HeartbeatAge; Phase; Exited; ExitCode; Note }
     #>
-    $portUp = Test-TcpPort -Port $script:WebPort
-    $ownerPid = if ($portUp) { Get-PortOwnerPid -Port $script:WebPort } else { 0 }
+    # ---- 判活：两种模式（2026-09-26 新增，默认行为与上游一致）----
+    #   port    : 老行为 —— DSH 的 Web 端口在不在听
+    #   process : 官方桌面端 —— `DeepSeek Harness.exe` 进程还在不在
+    #             ⚠️ 关键设计：把 process 的结论写进**同一个 PortUp 字段**，
+    #             于是下游（宽限期、连续轮次阈值、隔离观察、回滚判定）一行都不用改。
+    $procUp = $null
+    if ($script:HealthMode -eq 'process') {
+        $procUp   = Test-AppRunning
+        $portUp   = $procUp
+        $ownerPid = if ($procUp) { Get-AppPid } else { 0 }
+    }
+    else {
+        $portUp   = Test-TcpPort -Port $script:WebPort
+        $ownerPid = if ($portUp) { Get-PortOwnerPid -Port $script:WebPort } else { 0 }
+    }
     $st = Read-JsonFile -Path $script:LaunchStateFile
 
     $launcherPid = 0; $nodePid = 0; $phase = 'unknown'; $exited = $false; $exitCode = $null
@@ -59,6 +72,8 @@ function Get-HealthSnapshot {
     return [ordered]@{
         PortUp         = $portUp
         PortOwnerPid   = $ownerPid
+        HealthMode     = $script:HealthMode
+        ProcessUp      = $procUp
         HttpOk         = $null
         HttpMsg        = ''
         LauncherPid    = $launcherPid
@@ -77,9 +92,15 @@ function Test-HealthBad {
     <#  综合判断"当前运行是否不健康"  #>
     param($Health, [int]$ErrorCount = 0)
     $reasons = @()
-    if (-not $Health.PortUp) { $reasons += "Web 端口 $script:WebPort 未监听" }
+    if (-not $Health.PortUp) {
+        if ($script:HealthMode -eq 'process') { $reasons += "官方端进程 $script:AppProcess 不在" }
+        else { $reasons += "Web 端口 $script:WebPort 未监听" }
+    }
     if ($Health.PortUp -and $Health.HttpOk -eq $false) { $reasons += "HTTP 探测失败：$($Health.HttpMsg)" }
-    if (-not $Health.PortUp -and $Health.HeartbeatAge -ne [int]::MaxValue -and
+    # process 模式没有"启动器心跳"这个东西（官方端不写 launch-state.json），
+    # 拿旧文件里的时间戳去判"心跳停滞"只会产出假理由 ⇒ 该模式下跳过。
+    if ($script:HealthMode -ne 'process' -and -not $Health.PortUp -and
+        $Health.HeartbeatAge -ne [int]::MaxValue -and
         $Health.HeartbeatAge -gt $script:Cfg.HeartbeatStaleSec -and -not $Health.Exited) {
         $reasons += "启动器心跳停滞 $($Health.HeartbeatAge) 秒（阈值 $($script:Cfg.HeartbeatStaleSec)s）"
     }
@@ -243,10 +264,20 @@ function Invoke-WebCycle {
 
     $health = Get-HealthSnapshot
     if ($health.PortUp) {
-        $h = Test-WebHttp -Url $script:WebUrl -TimeoutSec 12
-        $health.HttpOk = $h.Ok
-        $health.HttpMsg = $h.Msg
-        if (-not $h.Ok) { Write-GuardLog "HTTP 探测异常：$($h.Msg)" -Level WARN }
+        # ⚠️ 2026-09-26：进程模式**必须跳过** HTTP 探测 —— 它按 $script:WebUrl（烘死的端口）探，
+        #    而官方端每次启动端口都变 ⇒ 重启后必然探失败，于是给一个**明明在跑**的官方端
+        #    加上"HTTP 探测失败"这条不健康理由（后续可能触发误重启/误回滚）。
+        #    进程模式下"进程在"就是全部判据，端口/HTTP 都不参与。
+        if ($script:HealthMode -eq 'process') {
+            $health.HttpOk  = $null
+            $health.HttpMsg = ''
+        }
+        else {
+            $h = Test-WebHttp -Url $script:WebUrl -TimeoutSec 12
+            $health.HttpOk = $h.Ok
+            $health.HttpMsg = $h.Msg
+            if (-not $h.Ok) { Write-GuardLog "HTTP 探测异常：$($h.Msg)" -Level WARN }
+        }
     }
     # 刷新两端"连续不可用"计时（抑制判据用它，抗瞬时抖动；2026-09-13 加）
     Update-EndDownState -State $State
@@ -386,17 +417,17 @@ function Invoke-WebCycle {
         $grace = [int]$script:Cfg.RestartGraceSec
         if ($downSec -lt $grace) {
             # 刚还在跑 → 大概率有人（用户 / 外壳启动器 / 我们自己）正在重启它。等一等，别抢。
-            Write-GuardLog "Web 未在运行，但距最近一次在跑只有 $downSec 秒（宽限 $grace 秒）→ 只观察，不重启、不回滚" -Level INFO -NoConsole
+            Write-GuardLog "$script:SubjectIdle，但距最近一次在跑只有 $downSec 秒（宽限 $grace 秒）→ 只观察，不重启、不回滚" -Level INFO -NoConsole
             Save-GuardState -State $State
             return
         }
         if (-not $fatalEvidence) {
             # 超过宽限但日志干净：没有任何"它坏了"的证据，很可能就是用户自己关的。
-            Write-GuardLog "Web 未在运行（已 $downSec 秒），但日志里没有致命错误证据 → 判定为用户未启动/已关闭，不处置" -Level INFO -NoConsole
+            Write-GuardLog "$script:SubjectIdle（已 $downSec 秒），但日志里没有致命错误证据 → 判定为用户未启动/已关闭，不处置" -Level INFO -NoConsole
             Save-GuardState -State $State
             return
         }
-        $badReasons += "Web 未在运行（已 $downSec 秒）且日志有致命错误证据（近期错误 $recent 条）"
+        $badReasons += "$script:SubjectIdle（已 $downSec 秒）且日志有致命错误证据（近期错误 $recent 条）"
     }
 
     # ---- 4. 处置 ----
@@ -528,7 +559,7 @@ $($tail -join "`n")
         try { $remain = [int](([datetime]::Parse($State.quarantineUntil)) - (Get-Date)).TotalSeconds } catch { }
         if ($remain -le 0) {
             if ($health.PortUp) { Complete-Quarantine -State $State }
-            else { Write-GuardLog '观察期结束时 Web 未在运行，暂不晋升' -Level WARN }
+            else { Write-GuardLog "观察期结束时 $script:SubjectIdle，暂不晋升" -Level WARN }
         } else {
             Write-GuardLog "隔离观察中：还有约 $remain 秒（若无崩溃将晋升为可用版本）端口=$($health.PortUp) 心跳=$($health.HeartbeatAge)s 近期错误=$recent" -Level INFO -NoConsole
         }
@@ -536,8 +567,10 @@ $($tail -join "`n")
         # 稳态巡检日志
         # 端口活着 → 清掉可能残留的"另一端"标记（插件版是空操作，留着便于将来多端复用）
         if ($health.PortUp -and (Get-ActiveEnd).End -eq 'native') { Clear-ActiveEnd }
-        $nodeInfo = if ($health.PortUp) { "端口 $script:WebPort 正常(PID $($health.PortOwnerPid))" } else { 'Web 未运行' }
-        Write-GuardLog "巡检：$nodeInfo ，HttpOk=$($health.HttpOk) ，心跳 $($health.HeartbeatAge)s ，近期错误 $recent 条" -Level INFO -NoConsole
+        # ⚠️ 2026-09-26：文案要跟着模式走 —— 进程模式下原来照样打印"端口 19387 正常"，
+        #    看日志的人会以为还在按端口判活（实际判的是 DeepSeek Harness.exe 进程）。
+        $nodeInfo = if ($health.PortUp) { "$script:SubjectLabel 在(PID $($health.PortOwnerPid))" } else { $script:SubjectIdle }
+        Write-GuardLog "巡检：$nodeInfo ，模式 $($script:HealthMode) ，HttpOk=$($health.HttpOk) ，心跳 $($health.HeartbeatAge)s ，近期错误 $recent 条" -Level INFO -NoConsole
     }
 
     Save-GuardState -State $State

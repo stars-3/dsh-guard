@@ -624,11 +624,14 @@ function Restore-ProfileSnapshot {
     }
 
     # 5) 尽力让 pnpm 把依赖树对齐到快照的 lock（离线优先，失败不致命）
+    # ⚠️ 2026-09-26：命令改走 $script:PnpmCmd —— 官方桌面端的插件进程 PATH 里没有 pnpm，
+    #    要用官方端自带运行时（`node.exe <pnpm.cjs>`）；web 那份不配置时仍是裸 `pnpm`，行为不变。
     $pnpmOk = $null
+    $pnpmExe = if ($script:PnpmCmd) { $script:PnpmCmd } else { 'pnpm' }
     try {
         $env:npm_config_yes = 'true'
         $pnpmArgs = @('install', '--offline', '--prefer-offline', '--ignore-scripts=false')
-        $out = & cmd /c "cd /d `"$($script:ProfileDir)`" && pnpm install --prefer-offline --reporter=append-only 2>&1"
+        $out = & cmd /c "cd /d `"$($script:ProfileDir)`" && $pnpmExe install --prefer-offline --reporter=append-only 2>&1"
         $pnpmOk = ($LASTEXITCODE -eq 0)
         $steps += "pnpm install 退出码 $LASTEXITCODE"
         foreach ($l in @($out)) {

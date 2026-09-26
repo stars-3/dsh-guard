@@ -1,6 +1,9 @@
-﻿<img src="ui/guard-icon.png" width="88" align="right" alt="DSH Guard 图标">
+<img src="ui/guard-icon.png" width="88" align="right" alt="DSH Guard 图标">
 
 # DSH Guard · 守护
+
+> 源码仓库：<https://github.com/stars-3/dsh-guard> ｜ npm：`dsh-guard-desktop`
+> （作者的发布工具 `Push-ToGitHub.cmd` 留在本地、**不进公开仓库**）
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 **profile 快照 / 崩溃自动回滚 / 一键主动回滚** 插件（Windows）。
 
@@ -58,6 +61,23 @@
 4. 落地自检：JS 语法、`.ps1` 的 BOM、profile manifest 是否合法**且没有 BOM**；任何一项不过就**自动撤销这次安装**
 
 然后**重启 DSH** 才会加载。
+
+### 1b. 用 npm 上的版本（推荐，升级最省事）
+
+```powershell
+dsh plugin --profile desktop add dsh-guard-desktop
+```
+
+- **新增 bundle 会热加载**（约 18 秒，不用重启官方端）；只有"改了插件内部代码"才需要重启。
+- ⚠️ 包名有两处契约（改一处漏一处 = **服务端全绿、界面全坏**，账本 **E80**）：
+  ① `cordis.patch.yml` 的 `insert.name` **必须等于包名**（`dsh-guard-desktop`）—— DSH 只把
+  bundle 包**按包名**链接进模块回退目录（写成旧名 → `/dsh-guard/*` 全 404、面板不挂载）；
+  ② `client/client.js` 里 `window.__ModuleLoader__.load({ id })` **也必须等于包名** ——
+  官方端按包名注册进客户端图并**断言**该 id 注册过（不一致 → `loaded without registering`）。
+  版本：0.1.0 两处都错 → 0.1.1 修 ① → **0.1.2 修 ②**（现用 0.1.2）。
+  自查：`DSH-Desktop\tools\Check-PluginPackaging.ps1 -Dir <本目录>`；
+  profile 的 `cordis.patch.yml` 里那条覆盖用 `id: dsh-guard` 定位，**别写死 `name:`**，
+  否则换包名时那条覆盖会被静默跳过（守护会退回默认 profile/判活方式）。
 
 ### 2. 打开面板
 
@@ -216,7 +236,7 @@ lib\guard.ps1 -Action maint-stop -Out r.json
 ```
 dsh-guard-plugin/
 ├─ package.json            dsh.bundle.patch + dsh.client（web, 注入 settings）
-├─ cordis.patch.yml        insert: [{ id: dsh-guard, name: dsh-guard }]
+├─ cordis.patch.yml        insert: [{ id: dsh-guard, name: dsh-guard-desktop }] —— name 必须是包名（E80）
 ├─ Install-Plugin.ps1/.cmd 装（含装前快照 + 落地自检 + 失败自动撤销）
 ├─ Uninstall-Plugin.cmd    卸（= Install-Plugin.ps1 -Revert 的包装）
 ├─ client/client.js        设置页「守护」面板（React，两步确认回滚）
@@ -300,6 +320,38 @@ powershell -File lib\watchdog.ps1 -Profile web -Once -Out r.json
   面板顶部的「看门狗运行中/未运行」徽章就是给你看这个的。
 - **回滚 ≠ 万能**。它还原的是 profile 的配置与依赖；你自己项目里的文件、会话数据不在范围内。
 - **不做云备份**。快照在本地 `~/.dsh-guard`，磁盘坏了就没了。
+
+## 官方桌面端（`healthMode: process`，2026-09-26 新增）
+
+DSH 官方桌面端（`D:\dsh\`）与网页端有两处硬差别，本插件为此增加了**进程模式**：
+
+| 差别 | 后果 | 进程模式怎么解 |
+|---|---|---|
+| 界面端口**每次启动随机**（asar 里是 `server.listen(0, "127.0.0.1")`，实测过 19387） | 按端口判活必然盯错 | 判活改成看 `DeepSeek Harness.exe` 进程；结论写进**同一个** `$Health.PortUp` 字段，所以下游（宽限期/连续轮次阈值/隔离观察/回滚判定）**一行都没改** |
+| 没有 `dsh web --port` 这条 CLI | 看门狗"自动拉起"用不了 | `Start-DshWeb` 改拉 `appExe`；HTTP 探测在进程模式下**跳过**（否则官方端一重启、端口一换就误报"HTTP 探测失败"） |
+| 插件进程的 PATH 里没有 pnpm | 回滚最后一步 `pnpm install` 失败 | `$script:PnpmCmd` 指向官方端自带运行时（`node.exe <pnpm.cjs>`） |
+
+装到官方端时**必须**在 profile 补丁层里给这段（不给就等于默认 `profile='web'` + 盯端口 = 守错对象）：
+
+```yaml
+- id: dsh-guard
+  config:
+    profile: desktop
+    healthMode: process
+    appExe: 'D:\dsh\DeepSeek Harness.exe'
+    appProcess: 'DeepSeek Harness'
+```
+
+- **默认值是上游行为**：不传 `healthMode` 就是 `port` 模式，网页端那份**一个字节都没变**。
+  夹具 `tools\test-process-mode.ps1` 把"进程模式可用"与"不配置 = 老行为"一起钉住（含阳性/阴性对照）。
+- 顺带修掉一个会咬人的环境坑：**从 PowerShell 7 会话 spawn 出来的 5.1 子进程会继承 PS7 的
+  `PSModulePath`** → 5.1 命中 PS7 版 `Microsoft.PowerShell.Utility`、加载失败 → `Get-FileHash`
+  这类**靠自动加载**的 cmdlet 直接变成"无法识别的名称"。`lib/guard-bootstrap.ps1` §0 现在会剔掉 PS7 目录。
+- 静态护栏：`tools\test-var-collision.ps1` —— dot-source 文件里的**普通变量**撞入口脚本的参数名
+  （例如 `$keep` vs `[int]$Keep`：PowerShell 变量名不区分大小写 + dot-source 同作用域
+  → 把数组赋给 [int] 参数，报一句**与变量名毫无关系**的 `Cannot convert System.Object[] to Int32`）。（带阳性对照自检）
+- 看门狗脚本副本会同步到 `<守护数据目录>\bin`；`Install-Watchdog.cmd` 安装时会把
+  `-HealthMode/-AppExe/-AppProcess` 一并**烘进计划任务参数**（登录时环境里什么都没有）。
 
 ## 许可
 

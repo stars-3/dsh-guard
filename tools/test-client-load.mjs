@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const code = readFileSync(join(here, '..', 'client', 'client.js'), 'utf8')
+const pkgName = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).name
 
 let failed = false
 const fail = (m) => { console.error('✗ ' + m); failed = true }
@@ -68,7 +69,10 @@ if (!bundle) {
     fail('没有调用 window.__ModuleLoader__.load()')
 } else {
     console.log('bundle id:', bundle.id)
+    // 契约（账本 E80）：客户端 bundle 自报的 id 必须等于包名 —— 官方端按包名注册进客户端图，
+    // 加载后断言「这个 id 注册过」，不一致就抛 loaded without registering → 面板不挂载。
     if (!bundle.id) fail('bundle 缺少 id')
+    else if (bundle.id !== pkgName) fail('bundle id 必须等于包名: ' + bundle.id + ' vs ' + pkgName)
     if (typeof bundle.factory !== 'function') fail('bundle 缺少 factory')
 
     const mod = bundle.factory(fakeRequire)

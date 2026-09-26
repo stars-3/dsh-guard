@@ -1,4 +1,4 @@
-﻿/**
+/**
  * dsh-guard —— 客户端（设置页里的「守护」面板）
  *
  * 加载形状照抄 dsh-plugin-group-tools（已验证可用）：
@@ -14,7 +14,11 @@
  * 并需要重启 DSH 才生效 —— 不可轻点。
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-guard',
+  // ⚠️ 必须等于**包名**（dsh-guard-desktop）：官方端按包名把这一行注册进客户端图，
+  //    加载后还会断言「这个 id 注册过」——不一致就抛
+  //    `loaded without registering "<pkg>" via __ModuleLoader__.load`，
+  //    结果是面板不挂载（2026-09-26 真机报错，账本 E80）。
+  id: 'dsh-guard-desktop',
 
   factory: (require) => {
     var module = { exports: {} }

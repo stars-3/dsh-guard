@@ -23,6 +23,11 @@ param(
     # ⚠️ 默认 0 = "没指定"，交给 guard-bootstrap.ps1 §4 的优先级回退。
     #    计划任务那条路径是显式烘进去的，所以它永远是 explicit。
     [int]   $WebPort      = 0,
+    # ---- 官方桌面端支持（2026-09-26 新增；留空 = 上游行为）----
+    [string]$HealthMode   = '',
+    [string]$AppExe       = '',
+    [string]$AppProcess   = '',
+    [string]$PnpmCmd      = '',
     [int]   $IntervalSec  = 0,      # 0 = 用 Cfg 里的默认值
     [string]$WorkDir      = '',     # 自动重启 DSH 时的工作目录（决定会话分组）
     [switch]$Once,                  # 只跑一轮巡检就退出
@@ -32,7 +37,7 @@ param(
 
 $ErrorActionPreference = 'Continue'
 
-. (Join-Path $PSScriptRoot 'guard-bootstrap.ps1') -ProfileName $Profile -GuardHome $GuardHomeDir -WebPort $WebPort
+. (Join-Path $PSScriptRoot 'guard-bootstrap.ps1') -ProfileName $Profile -GuardHome $GuardHomeDir -WebPort $WebPort -HealthMode $HealthMode -AppExe $AppExe -AppProcess $AppProcess -PnpmCmd $PnpmCmd
 . (Join-Path $PSScriptRoot 'guard-core.ps1')
 . (Join-Path $PSScriptRoot 'watchdog-core.ps1')
 
@@ -129,6 +134,34 @@ function Get-GuardEnvironment {
 # 便于以后跟上游对照。
 function Start-DshWeb {
     param([switch]$WaitForReady, [int]$ReadyTimeoutSec = 120)
+
+    # ---- process 模式（官方桌面端，2026-09-26 新增）----
+    # 官方端没有 `dsh web --port` 这条 CLI，端口又是随机的 ⇒ 这里直接拉起 exe，并按进程判活。
+    if ($script:HealthMode -eq 'process') {
+        if (Test-AppRunning) {
+            return @{ Ok = $true; Pid = (Get-AppPid); Message = "官方端进程 $script:AppProcess 已在运行，无需重启" }
+        }
+        if (-not (Test-Path -LiteralPath $script:AppExe)) {
+            return @{ Ok = $false; Pid = 0; Message = "找不到官方端可执行文件 $script:AppExe" }
+        }
+        try {
+            $p = Start-Process -FilePath $script:AppExe -WorkingDirectory (Split-Path -Parent $script:AppExe) -PassThru
+            Write-GuardLog "已启动官方端 $script:AppExe（PID $($p.Id)）" -Level OK
+        } catch {
+            return @{ Ok = $false; Pid = 0; Message = "启动官方端失败：$($_.Exception.Message)" }
+        }
+        if ($WaitForReady) {
+            $deadline = (Get-Date).AddSeconds($ReadyTimeoutSec)
+            while ((Get-Date) -lt $deadline) {
+                Start-Sleep -Seconds 2
+                if (Test-AppRunning) { return @{ Ok = $true; Pid = (Get-AppPid); Message = "官方端已就绪（进程 $script:AppProcess）" } }
+                if (-not (Test-PidAlive -ProcessId $p.Id)) { return @{ Ok = $false; Pid = $p.Id; Message = '官方端进程提前退出' } }
+            }
+            return @{ Ok = $false; Pid = $p.Id; Message = "等待官方端就绪超时（$ReadyTimeoutSec 秒）" }
+        }
+        return @{ Ok = $true; Pid = $p.Id; Message = '已启动官方端（未等待就绪）' }
+    }
+
     if (Test-TcpPort -Port $script:WebPort) {
         return @{ Ok = $true; Pid = (Get-PortOwnerPid -Port $script:WebPort); Message = "端口 $script:WebPort 已在监听，无需重启" }
     }
