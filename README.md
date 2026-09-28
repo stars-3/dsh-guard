@@ -3,12 +3,17 @@
 # DSH Guard · 守护
 
 > 源码仓库：<https://github.com/stars-3/dsh-guard> ｜ npm：`dsh-guard-desktop`
-> （作者的发布工具 `Push-ToGitHub.cmd` 留在本地、**不进公开仓库**）
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的 **profile 快照 / 崩溃自动回滚 / 一键主动回滚** 插件（Windows）。
 
 > 一句话：**改插件、改配置之前先打一个快照；改崩了，一个按钮回滚回去。**
 > 如果崩到连界面都打不开，还有一个活在 DSH 之外的看门狗替你回滚（默认不替你启动 DSH，见下）。
+
+**自动回滚的条件：**DSH 端口持续不可用并超过宽限期、启动日志出现致命错误证据、近期发生过插件变更，三项必须同时成立。正常重启或短暂端口中断不会单独触发回滚。
+
+![DSH Guard 独立窗口中的快照列表与回滚操作](ui/guard-window-snapshots.png)
+
+独立窗口实拍：可创建快照、查看快照列表、选择快照回滚，并管理看门狗。
 
 ---
 
